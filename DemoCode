@@ -1,0 +1,258 @@
+
+# Demonstration Code for 
+# "Commodities Vs. Inflation"
+# http://www.rufusrankin.com/
+# July 2021
+# By Rufus Rankin
+# http://www.rufusrankin.com 
+# (c) 2021 by Rufus Rankin
+# This code and the referenced article 
+# Are for information purposes only
+# No investment advice or warranty is provided
+# By the author or his affiliates
+# Use at your own risk
+
+#Load packages
+
+require(tidyquant)
+require(tidyverse)
+require(riingo)
+require(timetk)
+require(roll)
+
+options(scipen = 50)
+
+#Get Data
+
+#DTWEXBGSdollar index
+
+getSymbols("DTWEXBGS", src="FRED", from = "1950-01-01", to = "2021-6-31")
+
+usdi.p<-DTWEXBGS
+
+#roll the last value forward to fill NAs
+
+usdi.pc<-na.locf(usdi.p)
+
+usdi.p.w<-usdi.pc[endpoints(usdi.p, on = "weeks")]
+
+usdi.p.m<-usdi.pc[endpoints(usdi.p, on = "months")]
+
+usdi.r<-na.omit(diff(log(usdi.pc)))
+
+usdi.wr<-na.omit(diff(log(usdi.p.w)))
+
+usdi.mr<-na.omit(diff(log(usdi.p.m)))
+
+#class(index(usdi.mr))
+
+##############################
+## COMMODITY INDEX ETFS
+##############################
+
+com.tick<-c("GSG","DJP","DBC","GLD","TIP")
+
+getSymbols(com.tick, from = "1990-01-01", auto.assign = TRUE)
+
+gsg.d<-na.omit(diff(log(GSG$GSG.Adjusted)))
+djp.d<-na.omit(diff(log(DJP$DJP.Adjusted)))
+dbc.d<-na.omit(diff(log(DBC$DBC.Adjusted)))
+gld.d<-na.omit(diff(log(GLD$GLD.Adjusted)))
+tip.d<-na.omit(diff(log(TIP$TIP.Adjusted)))
+
+gsg.m<-na.omit(diff(log(GSG$GSG.Adjusted[endpoints(GSG$GSG.Adjusted, on = "months")])))
+djp.m<-na.omit(diff(log(DJP$DJP.Adjusted[endpoints(DJP$DJP.Adjusted, on = "months")])))
+dbc.m<-na.omit(diff(log(DBC$DBC.Adjusted[endpoints(DBC$DBC.Adjusted, on = "months")])))
+gld.m<-na.omit(diff(log(GLD$GLD.Adjusted[endpoints(GLD$GLD.Adjusted, on = "months")])))
+tip.m<-na.omit(diff(log(TIP$TIP.Adjusted[endpoints(TIP$TIP.Adjusted, on = "months")])))
+
+com.etf.dr<-na.omit(cbind(gsg.d,djp.d,dbc.d,gld.d,tip.d))
+colnames(com.etf.dr)<-c("GSG","DJP","DBC","GLD","TIP")
+
+com.etf.mr<-na.omit(cbind(gsg.m,djp.m,dbc.m,gld.m,tip.m))
+colnames(com.etf.mr)<-c("GSG","DJP","DBC","GLD","TIP")
+
+
+#############################################
+## SG COMMODITY INDEX  (MONTHLY)
+#############################################
+
+#download SG Commo Index Data
+db6<-read.csv("https://wholesale.banking.societegenerale.com/fileadmin/indices_feeds/Commodity_Trading_Index_Trading_Historical.xls",sep="\t",header = FALSE)
+
+#drop last column
+db6<-db6[,1:3]
+
+#rename columns
+names(db6)[names(db6)=="V1"] <- "tdate"
+names(db6)[names(db6)=="V2"] <- "vami"
+names(db6)[names(db6)=="V3"] <- "month"
+
+#convert to zoo then xts
+sgctpzoo<-read.zoo(db6,sep=",",format="%Y/%m/%d")
+sgctpxts<-as.xts(sgctpzoo)
+
+#prices
+sgctpprice<-sgctpxts$vami
+colnames(sgctpprice)<-"SGCT"
+#sgctpprice.m<-sgctpprice[endpoints(sgctpprice, on = "months")]
+
+#returns
+sgctpret<-sgctpxts$month
+colnames(sgctpret)<-"SGCT"
+
+#sg comm trader index monthly returns
+
+sgct<-sgctpret
+
+#################
+# COMBINE DATA  #
+#################
+
+#wrangle com etfs and sg ct together 
+
+cd<-com.etf.mr
+
+min(index(cd))
+
+sgc1<-sgct["2006-11/"]
+
+dim(cd)
+dim(sgc1)
+
+max(index(sgc1))
+max(index(cd))
+
+cd1<-cd["/2021-05"]
+
+#final clean monthly returns
+
+com.data<-cbind(cd1,coredata(sgc1))
+
+usd.cut<-usdi.mr["2006-11/2021-05"]
+
+cd3<-cbind(com.data, coredata(usd.cut))
+
+colnames(cd3)[7]<-"USD"
+
+############################
+# PASSIVE COMMO PORTFOLIO  #  
+# & SGCT                   #
+############################
+
+#Create a passive commo portfolio 
+#equal weight the three ETFs
+
+com.ew<-Return.portfolio(cd3[,1:3], rebalance_on = "quarters")
+
+chart.CumReturns(com.ew, col="darkblue" ,main = "Passive Commodities - Equal Weight Portfolio")
+
+#compare SGCT and passive equal weight
+
+cd4<-cbind(com.data$SGCT,com.ew)
+
+colnames(cd4)<-c("SGCT","EW")
+
+charts.PerformanceSummary(cd4,legend.loc = "bottomleft",
+                          main = "SGCT vs. Passive Commodity Portfolio")
+
+stratStats(cd4)
+
+#Illustrations
+
+#par(mar = c(3,3,3,3)) #adjust plot margins if desired
+
+par(mfrow=c(1,1))
+
+charts.PerformanceSummary(cd3, legend.loc = "topleft", main = "Commodity Investments")
+
+stratStats(cd3)
+
+#histograms of ETPs and SGCT
+
+par(mfrow = c(2,2))
+
+hist(cd3$GSG, main = "Histogram of GSG", col = "darkgrey")
+
+hist(cd3$DBC, main = "Histogram of DBC", col = "darkgrey")
+
+hist(cd3$DJP, main = "Histogram of DJP", col = "darkgrey")
+
+hist(cd3$SGCT, main = "Histogram of SGCT", col = "darkblue")
+
+
+####################################
+## INFLATION PORTFOLIO PERFORMANCE #  
+####################################
+
+cd5<-cbind(cd3$GLD,cd3$TIP,cd4)
+
+#ADD USD TWI DATA!!!
+
+# 1/3 GLD 2/3 TIP
+
+gt<-Return.portfolio(cd5, weights = c(0.33,0.67,0,0), rebalance_on = "quarters")
+
+#20/40/40 GLD/TIP/SGCT
+
+gts<-Return.portfolio(cd5, weights = c(0.20,0.40,0.40,0), rebalance_on = "quarters")
+
+#20/60/20 gld/tip/ew
+
+gtp<-Return.portfolio(cd5,weights = c(0.20,0.60,0,0.20))
+
+#25/25/50 dbc/gld/tip
+
+#gtdbc<-Return.portfolio(cd3,weights = c(0,0,0.25,0.25,0.50,0,0))
+
+ip<-cbind(gt,gts,gtp,cd3$USD)
+
+colnames(ip)<-c("IHP","IHP+SG","IHP+EW","USD")
+
+par(mfrow=c(1,1))
+
+chart.CumReturns(ip, legend.loc = "topleft",main = "Inflation Portfolios")
+
+stratStats(ip[,1:3])
+
+###############################
+# CORRELATION AND REGRESSION  #
+###############################
+
+ip.cor<-round(cor(ip),2)
+
+ip.cor.sum<-ip.cor[1:4,4]
+
+ip.df<-data.frame(ip)
+
+gt.usd<-lm(USD~IHP, data = ip.df)
+
+summary(gt.usd)
+
+gtsg.usd<-lm(USD~ip.df[,2], data = ip.df)
+
+summary(gtsg.usd)
+
+gtgsg.usd<-lm(USD~ip.df[,3], data = ip.df)
+
+summary(gtgsg.usd)
+
+#Scatterplots
+
+#IHP
+
+plot(x= ip.df[,1], y = ip.df$USD, col = "darkblue", pch = 19)
+
+abline(lm(USD~ip.df[,1], data = ip.df), col = "darkred", lwd = 3)
+
+#IHP + SG
+
+plot(x= ip.df[,2], y = ip.df$USD, col = "darkblue", pch = 19)
+
+abline(lm(USD~ip.df[,2], data = ip.df), col = "darkred", lwd = 3)
+
+#IHP + EW Commos
+
+plot(x= ip.df[,3], y = ip.df$USD, col = "darkblue", pch = 19)
+
+abline(lm(USD~ip.df[,3], data = ip.df), col = "darkred", lwd = 3)
